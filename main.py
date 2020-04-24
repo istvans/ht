@@ -1,17 +1,24 @@
 # coding=utf-8
-"""The goal of this module is to automate my hattrick player status monitoring
-"""
+"""Automate my hattrick player status monitoring"""
+import argparse
+
+from excel import Excel
 from hattrick import Hattrick
 
 
-with Hattrick() as ht:
-    team = ht.download_team()
-    print(team)
-    # TODO update excel
+PARSER = argparse.ArgumentParser(
+    description="Let me help you with that repetitive stuff..."
+)
+PARSER.add_argument("spreadsheet", help="the spreadsheet to be used as our database")
+ARGS = PARSER.parse_args()
 
-    players_list_page = ht.download_player_list_page()  # only download once
-    # TODO get list of players from excel
-    for name in ("Matar Beyal", "Alexandru Daina", "Jutas Rácz", "Fawwaz Al Dailami"):
-        player = ht.download_player_by_name(name, players_list_page)
+with Hattrick() as ht, Excel(ARGS.spreadsheet) as xl:
+    TEAM = ht.download_team()
+    print(TEAM)
+    xl.update_team(TEAM)
+
+    PLAYERS_LIST_PAGE = ht.download_player_list_page()  # only download once
+    for name in xl.monitored_players_names():
+        player = ht.download_player_by_name(name, PLAYERS_LIST_PAGE)
         print(player)
-        # TODO update excel
+        xl.update_player(player)
