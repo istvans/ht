@@ -114,6 +114,24 @@ class HtLink:
             cls.SESSION.__exit__()
 
 
+def _parse_login_status(response):
+    """Parse login status from the response page and return True for logged in
+    and False otherwise"""
+    login_failure_pattern = r"ucLogin_lblFailureText"
+    return not re.search(login_failure_pattern, response.text)
+
+
+def _ensure_login(response):
+    """If login failed based on the `response` raise a RuntimeError"""
+    logged_in = _parse_login_status(response)
+    if logged_in:
+        print("we're in! :)")
+    else:
+        _raise_and_try_dumping_page_error(
+            "Failed to log in (maybe the username/password is wrong!?)", "login", response
+        )
+
+
 class NoDefinitionInThisLanguageError(Exception):
     """Should be raised if we try to get the translation for a supported language
     in LanguageDependentText, but it is None
@@ -301,6 +319,30 @@ def _update_form_with_dynamic_value(page, key, form):
     form[key] = value
 
 
+def _get_user():
+    """Get a username from the user"""
+    user = None
+    while user is None:
+        try:
+            user = input("Username: ")
+        except SyntaxError:
+            user = None
+        if user == "":
+            user = None
+        if user is None:
+            print("Please enter a valid username")
+    return user
+
+
+def _get_from_user_if_none(maybe_none_value, get_from_user_function):
+    """Get the value from the user if it was None originally"""
+    if maybe_none_value is None:
+        value = get_from_user_function()
+    else:
+        value = maybe_none_value
+    return value
+
+
 class Hattrick:
     """Represent a Hattrick login-session"""
 
@@ -333,6 +375,7 @@ class Hattrick:
         "__EVENTTARGET": "ctl00$ctl00$CPContent$CPMain$lnkMoreTransfers",
     }
 
+    USER_FIELD = "ctl00$CPContent$ucLogin$txtUserName"
     PASSWORD_FIELD = "ctl00$CPContent$ucLogin$txtPassword"
 
     LOGOUT_LINK = "?action=logout"
@@ -375,9 +418,14 @@ class Hattrick:
         ),
     }
 
-    def __init__(self, currency="eFt"):
+    def __init__(self, currency, user=None, password=None):
         """Initialise a new session before login"""
+        if currency is None:
+            raise ValueError("The currency cannot be None")
+
         self.currency = currency
+        self.user = user
+        self.password = password
         self.server_id = None
         self.team = None
         self.language = None
@@ -417,13 +465,20 @@ class Hattrick:
         """
         try:
             HtLink.start_session()
+            print("Connecting... ", end="")
             response = HtLink.request(self.MAIN_PAGE, use_headers=False)
+            print("done")
 
-            self.LOGIN_FORM[self.PASSWORD_FIELD] = getpass()
+            self.LOGIN_FORM[self.USER_FIELD] = _get_from_user_if_none(self.user, _get_user)
+            self.LOGIN_FORM[self.PASSWORD_FIELD] = _get_from_user_if_none(self.password, getpass)
             self._fill_in_form_with_lookup_values(response, self.LOGIN_FORM)
 
+            print("Login... ", end="")
             response = HtLink.request(self.LOGIN_PAGE, method="post", data=self.LOGIN_FORM)
             response.raise_for_status()
+            _ensure_login(response)
+            self.logged_in = True
+
             server_pattern = r"^(?P<server_url>.*www(?P<server_id>\d+)\.hattrick\.org)"
             if match := re.search(server_pattern, response.url):
                 HtLink.SERVER_URL = match.group("server_url")
@@ -433,8 +488,6 @@ class Hattrick:
                 self.team = Team(team_id=team_id, name=team_name)
                 self.language = LanguageDependentText.find_language_in(response)
                 HtLink.APP_ERROR_PATTERN = self._translate_to_page_language("app_error")
-                print("We're in! :)")
-                self.logged_in = True
             else:
                 raise RuntimeError("Unexpected URL: '{}'".format(response.url))
         except Exception:
