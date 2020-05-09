@@ -13,7 +13,7 @@ import sys
 
 import requests
 
-from data import Player, Age, NationalPlayerStatus, Team
+from data import Player, Age, NationalPlayerStatus, Team, Skillz, Speciality
 
 
 def _dump_a_page_to_file(page, file_name):
@@ -159,7 +159,7 @@ class LanguageDependentText:
                 language: value
                 for language in dir(self)
                 if not language.startswith("__")
-                and (value:= getattr(self, language)) is not None
+                and (value := getattr(self, language)) is not None
             }
             error_message = ("{} available definitions: {}"
                              .format(language, available_definitions))
@@ -182,8 +182,8 @@ class LanguageDependentText:
                 )
                 raise RuntimeError(
                     (
-                        "Failed to detect the page's language from '{}'"
-                        " The supported language codes are '{}'"
+                        "Unsupported page language id: '{}'"
+                        " The supported language ids are '{}'"
                     ).format(language_id, supported_language_ids)
                 )
 
@@ -223,7 +223,7 @@ class FindState:
     """Preserve state for a find algorithm with multiple phases"""
 
     def __init__(self):
-        self.lets_find = False
+        self.in_block = False
         self.found_value = None
 
     def found(self):
@@ -245,43 +245,83 @@ class FindState:
             )
         return int_value
 
+    def find_in_a_block(self, block_pattern, value_pattern, text):
+        """Find the `block_pattern` then look for the `value_pattern` and, once found,
+        save it into this instance
+        """
+        if self.in_block and self.found_value is None:
+            if match := re.search(value_pattern, text):
+                self.found_value = match.group("value")
+                self.in_block = False
 
-def _find_in_a_block(block_pattern, value_pattern, text, find_state):
-    """Find the `block_pattern` then look for the `value_pattern` and, once found,
-    save it into `find_state`
+        if self.found_value is None and re.search(block_pattern, text):
+            self.in_block = True
+
+
+class BlockValueFindState(FindState):
+    """Preserve state for block-value pattern-finding algorithms with multi-phases"""
+
+    def __init__(self, block_pattern, value_pattern):
+        super(BlockValueFindState, self).__init__()
+        self.block_pattern = block_pattern
+        self.value_pattern = value_pattern
+
+    def find_in(self, text):
+        """Find the `block_pattern` then look for the `value_pattern` and, once found,
+        save it into this instance
+        """
+        self.find_in_a_block(self.block_pattern, self.value_pattern, text)
+
+
+def _find_values_in_blocks(search, page):
+    """Find the things specified in the `search` dictionary on the `page`
+    The expected search dictionary format is this:
+    {
+        '<thing>': BlockValueFindState,
+    }
+    Return whether all of them was found
     """
-    if not isinstance(find_state, FindState):
-        raise TypeError(
-            "find_state must be of type FindState and not '{}'"
-            .format(type(find_state))
+    found_all = False
+    for byte_line in page.iter_lines():
+        string_line = _bytes_to_string(byte_line)
+
+        found_all = True
+        for pattern in search.values():
+            pattern.find_in(string_line)
+            if not pattern.found():
+                found_all = False
+
+        if found_all:
+            break
+    return found_all
+
+
+def _parse_int_values_from_blocks_into(container, search, page):
+    """Find the things specified in the `search` dictionary on the `page`
+    and convert them into int values to be stored in the `container`
+    """
+    _find_values_in_blocks(search, page)
+
+    for (attribute, string_value) in search.items():
+        not_found_error_message = "Failed to find '{}'".format(attribute)
+        int_value = string_value.get_int_or_raise_and_try_dumping_page_error(
+            not_found_error_message, attribute, page, string_value.block_pattern
         )
-
-    if find_state.lets_find and find_state.found_value is None:
-        if match := re.search(value_pattern, text):
-            find_state.found_value = match.group("value")
-
-    if find_state.found_value is None and re.search(block_pattern, text):
-        find_state.lets_find = True
+        setattr(container, attribute, int_value)
 
 
 def _parse_player_tsi(player_page):
     """Parse and return the player's TSI or raise a RuntimeError"""
-    tsi_on_next_line_pattern = r"TSI</td>"
-    tsi_value_pattern = r">(?P<value>[^><]+)</td>"
+    search = {
+        "tsi": BlockValueFindState(block_pattern=r"TSI</td>",
+                                   value_pattern=r">(?P<value>[^><]+)</td>"),
+    }
+    _find_values_in_blocks(search, player_page)
 
-    tsi = FindState()
-    for byte_line in player_page.iter_lines():
-        string_line = _bytes_to_string(byte_line)
-
-        _find_in_a_block(
-            tsi_on_next_line_pattern, tsi_value_pattern, string_line, tsi
-        )
-        if tsi.found():
-            break
-
+    tsi = search["tsi"]
     return tsi.get_int_or_raise_and_try_dumping_page_error(
         "Failed to find the player's tsi", "tsi",
-        player_page, tsi_value_pattern,
+        player_page, tsi.value_pattern,
     )
 
 
@@ -416,6 +456,38 @@ class Hattrick:
             hungarian="Az igazgatóság tartaléka:",
             english=None,
         ),
+        "spec:technical": LanguageDependentText(
+            hungarian="Technikás",
+            english="Technical",
+        ),
+        "spec:quick": LanguageDependentText(
+            hungarian="Gyors",
+            english="Quick",
+        ),
+        "spec:head": LanguageDependentText(
+            hungarian="Jól fejelő",
+            english="Head",
+        ),
+        "spec:powerful": LanguageDependentText(
+            hungarian="Erőteljes",
+            english="Powerful",
+        ),
+        "spec:unpredictable": LanguageDependentText(
+            hungarian="Kiszámíthatatlan",
+            english="Unpredictable",
+        ),
+        "spec:resilient": LanguageDependentText(
+            hungarian="Ellenálló",
+            english="Resilient",
+        ),
+        "spec:support": LanguageDependentText(
+            hungarian="Csapatjátékos",
+            english="Support",
+        ),
+        "avg_star_value": LanguageDependentText(
+            hungarian=r"Átlagos csillagérték (?P<stars>[0-9.]+)",
+            english=None,
+        )
     }
 
     def __init__(self, currency, user=None, password=None):
@@ -431,11 +503,17 @@ class Hattrick:
         self.language = None
         self.logged_in = False
 
+    def _translate_to(self, key, language):
+        """Translate the value for `key` from `self.DICTIONARY` to the specified
+        language.
+        """
+        return self.DICTIONARY[key].translate_to(language)
+
     def _translate_to_page_language(self, key):
         """Translate the value for `key` from `self.DICTIONARY` to the page's
         language.
         """
-        return self.DICTIONARY[key].translate_to(self.language)
+        return self._translate_to(key, self.language)
 
     def _parse_team_name_by_id(self, page, team_id):
         """Parse and return the team's name or raise a RuntimeError"""
@@ -576,22 +654,63 @@ class Hattrick:
             self.currency
         )
 
-        sell_base_price = FindState()
-        for byte_line in price_estimation_page.iter_lines():
-            string_line = _bytes_to_string(byte_line)
+        search = {
+            "sell_base_price": BlockValueFindState(block_pattern=avg_price_block_pattern,
+                                                   value_pattern=price_pattern),
+        }
+        _find_values_in_blocks(search, price_estimation_page)
 
-            _find_in_a_block(
-                avg_price_block_pattern, price_pattern, string_line, sell_base_price
-            )
-            if sell_base_price.found():
-                break
-
+        sell_base_price = search["sell_base_price"]
         return sell_base_price.get_int_or_raise_and_try_dumping_page_error(
-            "Failed to find the player's base sell price",
-            "bsp",
-            price_estimation_page,
-            price_pattern,
+            "Failed to find the player's base sell price", "bsp",
+            price_estimation_page, sell_base_price.value_pattern,
         )
+
+    def _parse_speciality(self, player_page):
+        """Parse the speciality of the player, if any"""
+        spec_tags = {
+            self._translate_to_page_language(tag): tag
+            for tag in self.DICTIONARY if "spec:" in tag
+        }
+        spec_tags_pattern = r"(?P<spec>{})".format('|'.join(spec_tags.keys()))
+        if match := re.search(spec_tags_pattern, player_page.text):
+            tag = spec_tags[match.group("spec")]
+            english_name_of_spec = self._translate_to(tag, "english")
+            speciality = Speciality.parse_from_string(english_name_of_spec)
+        else:
+            speciality = Speciality.Nothing
+        return speciality
+
+    def _parse_player_skillz(self, player_page):
+        """Parse the player's skillz"""
+        skill_pattern = r"level='(?P<value>[0-9]+)'"
+        search = {
+            "playmaking": BlockValueFindState(block_pattern="PlayerSkills_trPlaymaker",
+                                              value_pattern=skill_pattern),
+            "winger": BlockValueFindState(block_pattern="PlayerSkills_trWinger",
+                                          value_pattern=skill_pattern),
+            "passing": BlockValueFindState(block_pattern="PlayerSkills_trPasser",
+                                           value_pattern=skill_pattern),
+            "scoring": BlockValueFindState(block_pattern="PlayerSkills_trScorer",
+                                           value_pattern=skill_pattern),
+        }
+        skillz = Skillz()
+        _parse_int_values_from_blocks_into(skillz, search, player_page)
+
+        skillz.speciality = self._parse_speciality(player_page)
+
+        return skillz
+
+    def _parse_player_stars(self, player_page):
+        """If there were previous games for this players, we'll return his star-rating
+        Otherwise, we'll return None.
+        """
+        star_pattern = self._translate_to_page_language("avg_star_value")
+        if match := re.search(star_pattern, player_page.text):
+            stars = float(match.group("stars"))
+        else:
+            stars = None
+        return stars
 
     def _download_player_info_into(self, player):
         """Download all the info we need into the specified `player`"""
@@ -600,14 +719,15 @@ class Hattrick:
         player.tsi = _parse_player_tsi(response)
         player.ntp_status = self._parse_national_team_player_status(response)
         player.sell_base_price = self._parse_player_sell_base_price(response)
+        player.extra.skillz = self._parse_player_skillz(response)
+        player.extra.stars = self._parse_player_stars(response)
 
-    def download_player_by_name(
-            self, name, players_list_page, raise_exception_if_not_found=True):
+    def download_player_by_name(self, name, players_list_page, raise_exception_if_not_found=True):
         """Return the Player object for the given `name`
         Raise an exception or just return `None` depending on `raise_exception_if_not_found`
         """
         player_regex = ((r'\<a href="(?P<player_link>/{}/Player[^ ]+'
-                         r'playerId=(?P<player_id>\d+)&[^ ]+)" .*{}')
+                         r'playerId=(?P<player_id>\d+)&[^ ]+)" title="[^"]+">{}')
                         .format(self.PLAYERS_LINK, name))
         if match := re.search(player_regex, players_list_page.text):
             player = Player(
@@ -631,32 +751,18 @@ class Hattrick:
         return HtLink.request(team_finance_url_suffix)
 
     def download_team(self):
-        """Return the Team object for our beloved team
-        Raise an exception or just return `None` depending on `raise_exception_if_not_found`
-        """
+        """Return the Team object for our beloved team"""
         finance_page = self._download_team_finance_page()
 
-        total_pattern = self._translate_to_page_language("total")
-        total = FindState()
-        reserves_pattern = self.DICTIONARY["board_reserves"].translate_to(self.language)
-        reserves = FindState()
         money_pattern = r"(?P<value>[0-9][0-9 ]+) {}".format(self.currency)
-
-        for byte_line in finance_page.iter_lines():
-            string_line = _bytes_to_string(byte_line)
-
-            _find_in_a_block(total_pattern, money_pattern, string_line, total)
-            _find_in_a_block(
-                reserves_pattern, money_pattern, string_line, reserves
-            )
-            if total.found() and reserves.found():
-                break
-
-        self.team.finance.total = total.get_int_or_raise_and_try_dumping_page_error(
-            "Failed to find total", "total", finance_page, total_pattern
-        )
-        self.team.finance.board_reserves = reserves.get_int_or_raise_and_try_dumping_page_error(
-            "Failed to find reserves", "reserves", finance_page, reserves_pattern
-        )
+        total_pattern = self._translate_to_page_language("total")
+        reserves_pattern = self._translate_to_page_language("board_reserves")
+        search = {
+            "total": BlockValueFindState(block_pattern=total_pattern,
+                                         value_pattern=money_pattern),
+            "board_reserves": BlockValueFindState(block_pattern=reserves_pattern,
+                                                  value_pattern=money_pattern),
+        }
+        _parse_int_values_from_blocks_into(self.team.finance, search, finance_page)
 
         return self.team

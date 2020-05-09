@@ -1,24 +1,51 @@
 # coding=utf-8
 """The interface between the scraper and a persistence module
-Here is the collection of all the info we scrape from the web
+This is the collection of all the info we scrape from the web or get from the
+command line/the user
 """
+from datetime import datetime
+from enum import Enum
+import re
+
+import common
 
 
 class Age:  # pylint: disable=too-few-public-methods
     """A hattrick player's age is represented as years and days.
     Note: one year is 112 days for them.
     """
+    STRING_FORMAT = r"(?P<years>\d+):(?P<days>\d+)"
+    # If a player is 17 years 111 days old today, he is going to be 18 years and
+    # 0 days old tomorrow.
+    MAX_DAYS = 112
 
     def __init__(self, years=None, days=None):
         self.years = years
         self.days = days
-        if not ((isinstance(self.years, int) and isinstance(self.days, int))
-                or (self.years is None and self.days is None)):
-            raise ValueError("{} and {} do not seem a valid age".format(years, days))
+
+    def __bool__(self):
+        """Return True if this is a valid age"""
+        return ((isinstance(self.years, int) and isinstance(self.days, int))
+                and (16 < self.years < 142)
+                and (0 <= self.days < self.MAX_DAYS))
 
     def __str__(self):
         """Return the readable stringification"""
         return "age:'{}' years '{}' days".format(self.years, self.days)
+
+    @classmethod
+    def parse_from_string(cls, string):
+        """Parse a valid age from string or raise a ValueError"""
+        if match := re.match(cls.STRING_FORMAT, string):
+            years = int(match.group("years"))
+            days = int(match.group("days"))
+        else:
+            raise ValueError("'{}' cannot be interpreted as a valid age (pattern:'{}')"
+                             .format(string, cls.STRING_FORMAT))
+        age = Age(years, days)
+        if not age:
+            raise ValueError("'{}' does not seem valid".format(age))
+        return age
 
 
 class NationalPlayerStatus:  # pylint: disable=too-few-public-methods
@@ -40,7 +67,151 @@ class NationalPlayerStatus:  # pylint: disable=too-few-public-methods
         )
 
 
-class Player:  # pylint: disable=too-few-public-methods
+class ConvertibleEnum(Enum):
+    """An enum that can be parsed from string and interpreted as a bool"""
+
+    @classmethod
+    def parse_from_string(cls, string):
+        """Parse a valid source from the string or raise a ValueError"""
+        try:
+            value = cls[string]
+        except KeyError:
+            raise ValueError("'{}' cannot be interpreted as {}"
+                             .format(string, cls)) from None
+        return value
+
+    @classmethod
+    def choices(cls):
+        """Return a nicely formatted list of possible values"""
+        return tuple(elem.name for elem in cls)
+
+    def __bool__(self):
+        """True if non-zero"""
+        return self != self.Unknown  # pylint: disable=no-member
+
+
+class Source(ConvertibleEnum):
+    """The possible origin of a player"""
+    Unknown = "Nemtudi"
+    Market = "Piac"
+    Academy = "Akadémia"
+    Lottery = "Lottó"
+
+
+class Speciality(ConvertibleEnum):
+    """A player's possible speciality"""
+    Unknown = "Nemtudi"
+    Nothing = None
+    Technical = "Technikás"
+    Quick = "Gyors"
+    Head = "Jól fejelő"
+    Powerful = "Erőteljes"
+    Unpredictable = "Kiszámíthatatlan"
+    Resilient = "Ellenálló"
+    Support = "Csapatjátékos"
+
+
+class Skillz:
+    """The skills we are interested in"""
+
+    def __init__(self, playmaking=None, winger=None, passing=None, scoring=None,
+                 speciality=Speciality.Unknown):
+        self.playmaking = playmaking
+        self.winger = winger
+        self.passing = passing
+        self.scoring = scoring
+        self.speciality = speciality
+
+    def __str__(self):
+        """Return the readable stringification of the skillz"""
+        return ("pm:'{}' w:'{}' pa:'{}' sc:'{}' spec:{}"
+                .format(self.playmaking, self.winger, self.passing, self.scoring,
+                        self.speciality.name))
+
+    def __bool__(self):
+        """Return True if, apart from speciality!, we have a sensible value for all"""
+        skillz_are_defined = (
+            s is not None
+            for s in (self.playmaking, self.winger, self.passing, self.scoring))
+        return all(skillz_are_defined)
+
+
+class PlayerMixin:  # pylint: disable=too-few-public-methods
+    """Collection of useful player related things"""
+
+    def _ensure_valid_value(self, attribute_name, args, is_undefined_fn,
+                            parse_from_string, choices):
+        """A value defined on the command line always takes precedence over the
+        originally scraped value (if there was any). The user's direct input
+        is used as a last resort
+        may raise UserInputWasCancelled
+        """
+        attribute = getattr(self, attribute_name)
+        cli_value = getattr(args, attribute_name)
+        if cli_value is None:
+            if is_undefined_fn(attribute):
+                value = common.get_from_user(attribute_name, parse_from_string, choices)
+            else:
+                value = None
+        elif isinstance(cli_value, str):
+            value = parse_from_string(cli_value)
+        else:
+            value = cli_value
+
+        if value is not None:
+            setattr(self, attribute_name, value)
+
+
+class ExtraPlayerInfo(PlayerMixin):
+    """Extra details for a player"""
+    DATE_FORMAT = "%d/%m/%Y"
+
+    def __init__(self):
+        self.skillz = Skillz()
+        self.source = Source.Unknown
+        self.stars = None
+        self.reserve_price = None
+        self.buy_price = None
+        self.arrival = None
+
+    def __str__(self):
+        """Return the readable stringification of this extra info"""
+        if self:
+            source_name = self.source.name  # pylint: disable=no-member
+            stringified = (
+                "\nsource:'{}' stars:'{}' {} rp:'{}' bp:'{}' arrival:'{}'"
+                .format(source_name, self.stars, self.skillz, self.reserve_price,
+                        self.buy_price, self.arrival)
+            )
+        else:
+            stringified = ""
+        return stringified
+
+    def __bool__(self):
+        """Return True if the instance has the bare minimum"""
+        return bool(self.skillz)
+
+    def fill_from_cli_or_user(self, args) -> None:
+        """Fill in the missing extra info (if there's any...) using _ensure_valid_value
+        may raise UserInputWasCancelled
+        """
+        float_number_choices = "a float number"
+        self._ensure_valid_value(
+            "source", args, lambda x: not x, Source.parse_from_string,
+            Source.choices())
+        self._ensure_valid_value(
+            "stars", args, lambda x: x is None, float, float_number_choices)
+        self._ensure_valid_value(
+            "reserve_price", args, lambda x: x is None, float, float_number_choices)
+        self._ensure_valid_value(
+            "buy_price", args, lambda x: x is None, float, float_number_choices)
+        self._ensure_valid_value(
+            "arrival", args, lambda x: x is None,
+            lambda s: datetime.strptime(s, self.DATE_FORMAT),
+            self.DATE_FORMAT)
+
+
+class Player(PlayerMixin):  # pylint: disable=too-many-instance-attributes
     """A collection of all the info we care about a hattrick player"""
 
     def __init__(self, name, link, player_id):
@@ -51,16 +222,31 @@ class Player:  # pylint: disable=too-few-public-methods
         self.tsi = None
         self.ntp_status = NationalPlayerStatus(False, False)
         self.sell_base_price = None
+        self.extra = ExtraPlayerInfo()
 
     def __str__(self):
         """Return the readable stringification of a player"""
         return (
-            "'{}' (id:'{}') '{}' TSI:'{}' {} SBP:{}"
+            "'{}' (id:'{}') {} TSI:'{}' {} SBP:'{}'{}"
             .format(
                 self.name, self.id, self.age, self.tsi,
                 self.ntp_status, self.sell_base_price,
+                self.extra
             )
         )
+
+    def fill_from_cli_or_user(self, args) -> None:
+        """Fill in any missing info or override info from the command line
+        may raise UserInputWasCancelled
+        """
+        self._ensure_valid_value(
+            "age", args, lambda x: not x, Age.parse_from_string,
+            Age.STRING_FORMAT)
+        self._ensure_valid_value(
+            "tsi", args, lambda x: x is None, int, "an int number")
+        self._ensure_valid_value(
+            "sell_base_price", args, lambda x: x is None, float, "a float number")
+        self.extra.fill_from_cli_or_user(args)
 
 
 class Finance:  # pylint: disable=too-few-public-methods
