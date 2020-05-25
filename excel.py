@@ -237,7 +237,7 @@ def _update_central_player_sheet(player: Player, sheet: SheetType) -> None:
         if next_player_name == "Dunno":
             raise ValueError("Failed to find '{}' in '{}'!".format(name, headers))
         if next_player_name is None:  # the first player ever
-            raise RuntimeError("Add manually")  # MAYDO automate when everything else works
+            raise NotImplementedError("Add manually")  # MAYDO automate when everything else works
         # there is at least one more player
         cell = _find_cell_by_name(headers, next_player_name)
         if cell is None:
