@@ -57,7 +57,8 @@ def main():
     args = parser.parse_args()
 
     pause = getattr(args, common.PAUSE_ARG)
-    common.run_and_maybe_pause_at_the_end(pause, _add_player, args)
+    with common.maybe_pause_at_the_end(pause):
+        _add_player(args)
 
 
 if __name__ == "__main__":

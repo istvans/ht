@@ -1,6 +1,7 @@
 # coding=utf-8
 """Common code shared across the project"""
 import argparse
+import contextlib
 import sys
 import traceback
 
@@ -32,11 +33,11 @@ def cli_arg_parser():
     return parser
 
 
-def run_and_maybe_pause_at_the_end(pause, function, *args, **kwargs):
-    """Run `function` with its arguments and pause at the end, depending on `pause`
-    """
+@contextlib.contextmanager
+def maybe_pause_at_the_end(pause):
+    """pause at the end if `pause` is True"""
     try:
-        function(*args, **kwargs)
+        yield
     finally:
         if pause:
             (exc_type, exc, trace) = sys.exc_info()
