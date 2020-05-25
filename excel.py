@@ -1,5 +1,6 @@
 # coding=utf-8
 """The excel persistence module"""
+from abc import abstractmethod
 from collections import namedtuple
 import contextlib
 from datetime import date, datetime
@@ -8,6 +9,9 @@ import re
 import sys
 from typing import Any, Dict, List
 import xlwings as xl
+from xlwings.utils import rgb_to_int
+
+from overrides import overrides
 
 from data import Player, Team
 
@@ -85,16 +89,56 @@ def _cell_by_column_and_header(sheet: SheetType, column_number: int, header_name
     return sheet.range(header.row, column_number)
 
 
+class ValueAndFormat:  # pylint: disable=too-few-public-methods
+    """Store a value and allow custom cell formatting via inheritance"""
+
+    def __init__(self, value):
+        self.value = value
+
+    @abstractmethod
+    def format_cell_win32(self, cell: CellType):
+        """The abstract cell formatter function
+        WARNING: this makes the script Windows dependent!
+        """
+
+
+class NtpValueAndFormat(ValueAndFormat):  # pylint: disable=too-few-public-methods
+    """National Team Player formatter"""
+
+    def __init__(self):
+        super(NtpValueAndFormat, self).__init__("IGEN!!!")
+
+    @overrides
+    def format_cell_win32(self, cell: CellType):
+        """Apply the emblematic NTP formatting to the cell
+        WARNING: this makes the script Windows dependent!
+        """
+        cell.api.Font.Bold = True
+        nice_green = (0, 176, 80)
+        cell.api.Font.Color = rgb_to_int(nice_green)
+
+
+def _set_and_maybe_format_cell(cell: CellType, generic_value):
+    """Set the `cell`'s value and also format it if `generic_value` is of type ValueAndFormat"""
+    if isinstance(generic_value, ValueAndFormat):
+        cell.value = generic_value.value
+        generic_value.format_cell_win32(cell)
+    else:
+        cell.value = generic_value
+
+
 def _update_row_based_on_map(sheet: SheetType, row_number: int, header_value_map: Dict):
     """Update a row in the sheet based on the provided mapping"""
     for (header, value) in header_value_map.items():
-        _cell_by_row_and_header(sheet, row_number, header).value = value
+        cell = _cell_by_row_and_header(sheet, row_number, header)
+        _set_and_maybe_format_cell(cell, value)
 
 
 def _update_column_based_on_map(sheet: SheetType, column_number: int, header_value_map: Dict):
     """Update a column in the sheet based on the provided mapping"""
     for (header, value) in header_value_map.items():
-        _cell_by_column_and_header(sheet, column_number, header).value = value
+        cell = _cell_by_column_and_header(sheet, column_number, header)
+        _set_and_maybe_format_cell(cell, value)
 
 
 def _date_with_row(last_cell_with_value: CellType):
@@ -410,7 +454,7 @@ class Excel:
                 "Kor (év)": player.age.years,
                 "Kor (nap)": player.age.days,
                 "TSI": player.tsi,
-                "Válogatott?": "IGEN!!!" if is_ntp else "Nem",
+                "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
                 "Eladási alapár": player.sell_base_price,
             }
             _update_row_based_on_map(sheet, todays_row.row, header_value_map)
@@ -441,7 +485,7 @@ class Excel:
                     "Kor (év)": player.age.years,
                     "Kor (nap)": player.age.days,
                     "TSI": player.tsi,
-                    "Válogatott?": "IGEN!!!" if is_ntp else "Nem",
+                    "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
                     "Eladási alapár": player.sell_base_price,
                 }
                 _update_row_based_on_map(player_sheet, arrival_row.row, header_value_map)
