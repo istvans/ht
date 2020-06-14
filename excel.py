@@ -127,7 +127,7 @@ def _set_and_maybe_format_cell(cell: CellType, generic_value):
         cell.value = generic_value
 
 
-def _update_row_based_on_map(sheet: SheetType, row_number: int, header_value_map: Dict):
+def _update_row_based_on_map(sheet: SheetType, row_number: int, header_value_map: Dict) -> None:
     """Update a row in the sheet based on the provided mapping"""
     for (header, value) in header_value_map.items():
         cell = _cell_by_row_and_header(sheet, row_number, header)
@@ -139,6 +139,19 @@ def _update_column_based_on_map(sheet: SheetType, column_number: int, header_val
     for (header, value) in header_value_map.items():
         cell = _cell_by_column_and_header(sheet, column_number, header)
         _set_and_maybe_format_cell(cell, value)
+
+
+def _update_player(player: Player, sheet: SheetType, row_number: int) -> None:
+    """Update the `player`'s info in the given `sheet` on the specified `row`"""
+    is_ntp = player.ntp_status.is_national_team_player
+    header_value_map = {
+        "Kor (év)": player.age.years,
+        "Kor (nap)": player.age.days,
+        "TSI": player.tsi,
+        "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
+        "Eladási alapár": player.sell_base_price,
+    }
+    _update_row_based_on_map(sheet, row_number, header_value_map)
 
 
 def _date_with_row(last_cell_with_value: CellType):
@@ -232,6 +245,7 @@ def _update_central_player_sheet(player: Player, sheet: SheetType) -> None:
     headers = sheet[FIRST_ROW]
     name = player.name
     cell = _find_cell_by_name(headers, name)
+    reserve_price_header = "Kikiáltási ár"
     if cell is None:
         next_player_name = getattr(player, NEXT_PLAYER_NAME_ATTRIBUTE, "Dunno")
         if next_player_name == "Dunno":
@@ -257,14 +271,14 @@ def _update_central_player_sheet(player: Player, sheet: SheetType) -> None:
             "Név": player.name,
             "Forrás": player.extra.source.value,
             "Spec": player.extra.skillz.speciality.value,
-            "Kikiáltási ár": player.extra.reserve_price,
+            reserve_price_header: player.extra.reserve_price,
             "Végső ár": player.extra.buy_price,
             "Érkezés -> Távozás": player.extra.arrival,
         })
     else:
         update_column = cell.column + 1
         header_value_map.update({
-            "Kikiáltási ár": player.sell_base_price,
+            reserve_price_header: player.sell_base_price,
         })
     _update_column_based_on_map(sheet, update_column, header_value_map)
 
@@ -449,15 +463,7 @@ class Excel:
 
             todays_row = _get_todays_row(sheet, last_cell_with_value, self._today)
 
-            is_ntp = player.ntp_status.is_national_team_player
-            header_value_map = {
-                "Kor (év)": player.age.years,
-                "Kor (nap)": player.age.days,
-                "TSI": player.tsi,
-                "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
-                "Eladási alapár": player.sell_base_price,
-            }
-            _update_row_based_on_map(sheet, todays_row.row, header_value_map)
+            _update_player(player, sheet, todays_row.row)
 
             _update_central_player_sheet(player, self._central_player_sheet)
 
@@ -478,17 +484,13 @@ class Excel:
                 new_player_sheet = _find_sheet_by_regex(NEW_PLAYER_MARKER, self._sheets())
                 player_sheet = _copy_sheet_win32(new_player_sheet, latest_player_sheet, name)
                 arrival_row = player_sheet[FIRST_DATA_ROW]
-                is_ntp = player.ntp_status.is_national_team_player
+                row_number = arrival_row.row
                 header_value_map = {
                     "Dátum": player.extra.arrival,
                     "Vételi ár": player.extra.buy_price,
-                    "Kor (év)": player.age.years,
-                    "Kor (nap)": player.age.days,
-                    "TSI": player.tsi,
-                    "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
-                    "Eladási alapár": player.sell_base_price,
                 }
-                _update_row_based_on_map(player_sheet, arrival_row.row, header_value_map)
+                _update_row_based_on_map(player_sheet, row_number, header_value_map)
+                _update_player(player, player_sheet, row_number)  # to fill in the common columns
 
             next_player_name = _player_name_to_the_right(player_sheet)
             setattr(player, NEXT_PLAYER_NAME_ATTRIBUTE, next_player_name)
