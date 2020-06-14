@@ -10,6 +10,9 @@ import re
 import common
 
 
+UNKNOWN_STR = "Ismeretlen"
+
+
 class Age:  # pylint: disable=too-few-public-methods
     """A hattrick player's age is represented as years and days.
     Note: one year is 112 days for them.
@@ -72,7 +75,7 @@ class ConvertibleEnum(Enum):
 
     @classmethod
     def parse_from_string(cls, string):
-        """Parse a valid source from the string or raise a ValueError"""
+        """Parse a valid value from the string or raise a ValueError"""
         try:
             value = cls[string]
         except KeyError:
@@ -92,7 +95,7 @@ class ConvertibleEnum(Enum):
 
 class Source(ConvertibleEnum):
     """The possible origin of a player"""
-    Unknown = "Nemtudi"
+    Unknown = UNKNOWN_STR
     Market = "Piac"
     Academy = "Akadémia"
     Lottery = "Lottó"
@@ -100,7 +103,7 @@ class Source(ConvertibleEnum):
 
 class Speciality(ConvertibleEnum):
     """A player's possible speciality"""
-    Unknown = "Nemtudi"
+    Unknown = UNKNOWN_STR
     Nothing = None
     Technical = "Technikás"
     Quick = "Gyors"
@@ -114,7 +117,8 @@ class Speciality(ConvertibleEnum):
 class Skillz:
     """The skills we are interested in"""
 
-    def __init__(self, playmaking=None, winger=None, passing=None, scoring=None,
+    def __init__(self,  # pylint: disable=too-many-arguments
+                 playmaking=None, winger=None, passing=None, scoring=None,
                  speciality=Speciality.Unknown):
         self.playmaking = playmaking
         self.winger = winger
@@ -139,8 +143,9 @@ class Skillz:
 class PlayerMixin:  # pylint: disable=too-few-public-methods
     """Collection of useful player related things"""
 
-    def _ensure_valid_value(self, attribute_name, args, is_undefined_fn,
-                            parse_from_string, choices):
+    def _ensure_valid_value(self,  # pylint: disable=too-many-arguments
+                            attribute_name, args, is_undefined_fn, parse_from_string,
+                            choices):
         """A value defined on the command line always takes precedence over the
         originally scraped value (if there was any). The user's direct input
         is used as a last resort
@@ -179,7 +184,7 @@ class ExtraPlayerInfo(PlayerMixin):
         if self:
             source_name = self.source.name  # pylint: disable=no-member
             stringified = (
-                "\nsource:'{}' stars:'{}' {} rp:'{}' bp:'{}' arrival:'{}'"
+                "\nsource:{} stars:'{}' {} rp:'{}' bp:'{}' arrival:'{}'"
                 .format(source_name, self.stars, self.skillz, self.reserve_price,
                         self.buy_price, self.arrival)
             )
