@@ -149,6 +149,8 @@ def _update_player(player: Player, sheet: SheetType, row_number: int) -> None:
         "Kor (nap)": player.age.days,
         "TSI": player.tsi,
         "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
+        "Forma": str(player.form),
+        "Erőnlét": str(player.stamina),
         "Eladási alapár": player.sell_base_price,
     }
     _update_row_based_on_map(sheet, row_number, header_value_map)

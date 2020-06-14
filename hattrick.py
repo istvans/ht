@@ -14,11 +14,13 @@ from typing import Any, Callable, Optional
 
 import requests
 
-from data import Player, Age, NationalPlayerStatus, Team, Skillz, Speciality
+from data import Player, Age, NationalPlayerStatus, Team, Skillz, Speciality, Ability
 
 
 PageType = requests.models.Response
 OptionalString = Optional[str]
+
+LEVEL_PATTERN = r"level='(?P<value>[0-9]+)'"
 
 
 def _page_text(page: PageType) -> str:
@@ -321,19 +323,45 @@ def _parse_int_values_from_blocks_into(container, search: dict, page: PageType):
         setattr(container, attribute, int_value)
 
 
-def _parse_player_tsi(player_page):
-    """Parse and return the player's TSI or raise a RuntimeError"""
-    search = {
-        "tsi": BlockValueFindState(block_pattern=r"TSI</td>",
-                                   value_pattern=r">(?P<value>[^><]+)</td>"),
-    }
-    _find_values_in_blocks(search, player_page)
+def _parse_single_int_from_block(
+        page: PageType, name: str, block_pattern: str, value_pattern: str) -> int:
+    """Parse an int from a block and return that or raise RuntimeError with page dump"""
+    search = {name: BlockValueFindState(block_pattern, value_pattern)}
+    _find_values_in_blocks(search, page)
 
-    tsi = search["tsi"]
-    return tsi.get_int_or_raise_and_try_dumping_page_error(
-        "Failed to find the player's tsi", "tsi",
-        player_page, tsi.value_pattern,
+    result = search[name]
+    return result.get_int_or_raise_and_try_dumping_page_error(
+        "Failed to find the '{}'".format(name), name, page, result.value_pattern,
     )
+
+
+def _parse_player_tsi(player_page: PageType) -> int:
+    """Parse and return the player's TSI or raise a RuntimeError"""
+    return _parse_single_int_from_block(player_page, "TSI",
+                                        block_pattern=r"TSI</td>",
+                                        value_pattern=r">(?P<value>[^><]+)</td>")
+
+
+def _parse_player_ability(player_page: PageType, name, block_pattern, value_pattern) -> Ability:
+    """Parse and return a player ability or raise a RuntimeError or ValueError"""
+    integer = _parse_single_int_from_block(
+        player_page, name, block_pattern, value_pattern
+    )
+    return Ability.parse_from_int(integer)
+
+
+def _parse_player_form(player_page: PageType) -> Ability:
+    """Parse and return the player's form or raise a RuntimeError"""
+    return _parse_player_ability(player_page, "form",
+                                 block_pattern=r"PlayerSkills_trForm",
+                                 value_pattern=LEVEL_PATTERN)
+
+
+def _parse_player_stamina(player_page: PageType) -> Ability:
+    """Parse and return the player's stamina or raise a RuntimeError"""
+    return _parse_player_ability(player_page, "stamina",
+                                 block_pattern=r"PlayerSkills_trStamina",
+                                 value_pattern=LEVEL_PATTERN)
 
 
 def _parse_team_id(page: PageType) -> int:
@@ -694,16 +722,15 @@ class Hattrick:
 
     def _parse_player_skillz(self, player_page: PageType):
         """Parse the player's skillz"""
-        skill_pattern = r"level='(?P<value>[0-9]+)'"
         search = {
             "playmaking": BlockValueFindState(block_pattern="PlayerSkills_trPlaymaker",
-                                              value_pattern=skill_pattern),
+                                              value_pattern=LEVEL_PATTERN),
             "winger": BlockValueFindState(block_pattern="PlayerSkills_trWinger",
-                                          value_pattern=skill_pattern),
+                                          value_pattern=LEVEL_PATTERN),
             "passing": BlockValueFindState(block_pattern="PlayerSkills_trPasser",
-                                           value_pattern=skill_pattern),
+                                           value_pattern=LEVEL_PATTERN),
             "scoring": BlockValueFindState(block_pattern="PlayerSkills_trScorer",
-                                           value_pattern=skill_pattern),
+                                           value_pattern=LEVEL_PATTERN),
         }
         skillz = Skillz()
         _parse_int_values_from_blocks_into(skillz, search, player_page)
@@ -728,6 +755,8 @@ class Hattrick:
         response = HtLink.request(player.link)
         player.age = self._parse_player_age(response)
         player.tsi = _parse_player_tsi(response)
+        player.form = _parse_player_form(response)
+        player.stamina = _parse_player_stamina(response)
         player.ntp_status = self._parse_national_team_player_status(response)
         player.sell_base_price = self._parse_player_sell_base_price(response)
         player.extra.skillz = self._parse_player_skillz(response)

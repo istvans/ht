@@ -114,6 +114,57 @@ class Speciality(ConvertibleEnum):
     Support = "Csapatjátékos"
 
 
+class StrInt:  # pylint: disable=too-few-public-methods
+    """An object with equally valid string and integer representations"""
+
+    def __init__(self, string, integer):
+        self.string = string
+        self.integer = integer
+
+    def __str__(self):
+        """Just return the string representation"""
+        return self.string
+
+
+class Ability(ConvertibleEnum):
+    """A player's potential ability level"""
+    Divine = StrInt("isteni", 20)
+    Utopian = StrInt("csodás", 19)
+    Magical = StrInt("varázslatos", 18)
+    Mythical = StrInt("legendás", 17)
+    Extra_terrestrial = StrInt("földöntúli", 16)
+    Titanic = StrInt("titáni", 15)
+    Supernatural = StrInt("természetfeletti", 14)
+    World_class = StrInt("világklasszis", 13)
+    Magnificent = StrInt("lenyűgöző", 12)
+    Brilliant = StrInt("ragyogó", 11)
+    Outstanding = StrInt("kiemelkedő", 10)
+    Formidable = StrInt("nagyszerű", 9)
+    Excellent = StrInt("remek", 8)
+    Solid = StrInt("jó", 7)
+    Passable = StrInt("megfelelő", 6)
+    Inadequate = StrInt("középszerű", 5)
+    Weak = StrInt("gyenge", 4)
+    Poor = StrInt("csapnivaló", 3)
+    Wretched = StrInt("pocsék", 2)
+    Disastrous = StrInt("katasztrofális", 1)
+    Non_existent = StrInt("nem létező", 0)
+    Unknown = StrInt(UNKNOWN_STR.lower(), -1)
+
+    def __str__(self):
+        """Just return the value's string representation"""
+        return self.value.string  # pylint: disable=no-member
+
+    @classmethod
+    def parse_from_int(cls, integer):
+        """Parse a valid value from the integer or raise a ValueError"""
+        for member in cls:
+            if member.value.integer == integer:
+                return member
+        raise ValueError("'{}' cannot be interpreted as {}"
+                         .format(integer, cls))
+
+
 class Skillz:
     """The skills we are interested in"""
 
@@ -227,16 +278,19 @@ class Player(PlayerMixin):  # pylint: disable=too-many-instance-attributes
         self.tsi = None
         self.ntp_status = NationalPlayerStatus(False, False)
         self.sell_base_price = None
+        self.form = Ability.Unknown
+        self.stamina = Ability.Unknown
         self.extra = ExtraPlayerInfo()
 
     def __str__(self):
         """Return the readable stringification of a player"""
+        form_name = self.form.name  # pylint: disable=no-member
+        stamina_name = self.stamina.name  # pylint: disable=no-member
         return (
-            "'{}' (id:'{}') {} TSI:'{}' {} SBP:'{}'{}"
+            "'{}' (id:'{}') {} TSI:'{}' {} SBP:'{}' form:{} stamina:{} {}"
             .format(
-                self.name, self.id, self.age, self.tsi,
-                self.ntp_status, self.sell_base_price,
-                self.extra
+                self.name, self.id, self.age, self.tsi, self.ntp_status,
+                self.sell_base_price, form_name, stamina_name, self.extra
             )
         )
 
