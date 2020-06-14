@@ -10,22 +10,32 @@ import io
 from pprint import pprint
 import re
 import sys
+from typing import Any, Callable, Optional
 
 import requests
 
 from data import Player, Age, NationalPlayerStatus, Team, Skillz, Speciality
 
 
-def _dump_a_page_to_file(page, file_name):
+PageType = requests.models.Response
+OptionalString = Optional[str]
+
+
+def _page_text(page: PageType) -> str:
+    """Return the specified `page`'s text"""
+    return page.text
+
+
+def _dump_a_page_to_file(page: PageType, file_name: str):
     """Dump the text of `page` into `file_name`
     It might raise all kinds of io errors...
     """
     with io.open(file_name, mode="w", encoding="utf-8") as dump_file:
-        dump_file.write(page.text)
+        dump_file.write(_page_text(page))
 
 
 def _raise_and_try_dumping_page_error(
-        base_error_message, dump_suffix, page, regex=None):
+        base_error_message: str, dump_suffix: str, page: PageType, regex: str = None):
     """Raise a runtime error and try to dump the `page` to
     crashdump.`dump_suffix`.html
     `base_error_message` will be extended with (the optional) `regex` and the
@@ -63,12 +73,12 @@ class HtLink:
     SESSION = None
 
     @classmethod
-    def _ensure_no_app_error(cls, response, data):
+    def _ensure_no_app_error(cls, response: PageType, data: Any):
         """Check whether the response contains an application error
         If so, raise an exception
         """
         if cls.APP_ERROR_PATTERN is not None:
-            if re.search(cls.APP_ERROR_PATTERN, response.text):
+            if re.search(cls.APP_ERROR_PATTERN, _page_text(response)):
                 if data is not None:
                     pprint("We've tried to use this data:{}".format(data))
                 _raise_and_try_dumping_page_error(
@@ -76,7 +86,9 @@ class HtLink:
                 )
 
     @classmethod
-    def request(cls, link, use_headers=True, method="get", data=None):
+    def request(
+            cls, link: str, use_headers: bool = True,
+            method: str = "get", data: Any = None) -> PageType:
         """Request the download of the link using the live session and return
         the HTML response
         Raise an exception if the final response code isn't 200 (OK).
@@ -114,14 +126,14 @@ class HtLink:
             cls.SESSION.__exit__()
 
 
-def _parse_login_status(response):
+def _parse_login_status(response: PageType):
     """Parse login status from the response page and return True for logged in
     and False otherwise"""
     login_failure_pattern = r"ucLogin_lblFailureText"
-    return not re.search(login_failure_pattern, response.text)
+    return not re.search(login_failure_pattern, _page_text(response))
 
 
-def _ensure_login(response):
+def _ensure_login(response: PageType):
     """If login failed based on the `response` raise a RuntimeError"""
     logged_in = _parse_login_status(response)
     if logged_in:
@@ -147,7 +159,7 @@ class LanguageDependentText:
         for language in self.SUPPORTED_LANGUAGES:
             setattr(self, language, kwargs[language])
 
-    def translate_to(self, language):
+    def translate_to(self, language: str):
         """Get the text in the specified language
         If the language is not supported -> AttributeError
         If the language is supported, but the text is None ->
@@ -167,10 +179,10 @@ class LanguageDependentText:
         return text
 
     @classmethod
-    def find_language_in(cls, page):
+    def find_language_in(cls, page: PageType):
         """Find and return the page's language or raise a RuntimeError"""
         page_language_regex = r'lang="(?P<language_id>[^"]+)"'
-        if match := re.search(page_language_regex, page.text):
+        if match := re.search(page_language_regex, _page_text(page)):
             page_language_pattern_to_script_language_mapping = {
                 "hu": cls.SUPPORTED_LANGUAGES[0],
                 "en": cls.SUPPORTED_LANGUAGES[1],
@@ -198,25 +210,24 @@ class LanguageDependentText:
         return language
 
 
-def _remove_witespace(raw_string):
+def _remove_witespace(raw_string: str) -> str:
     """Return a new string without any whitespace"""
     return "".join(raw_string.split())
 
 
-def _string_to_int(raw_string):
+def _string_to_int(raw_string: str) -> int:
     """Convert a string that contain numbers and optionally whitespace to int
     """
     return int(_remove_witespace(raw_string))
 
 
-def _bytes_to_string(bytes_value):
-    r"""Convert `bytes_value` to string by also replacing the following HTML
+def _bytes_to_string(value: bytes) -> str:
+    r"""Convert `value` to string by also replacing the following HTML
     characters:
     \xa0 -> " "
     &nbsp; -> " "
     """
-    return (bytes_value.decode("utf-8").replace("\xa0", " ")
-            .replace("&nbsp;", " "))
+    return value.decode("utf-8").replace("\xa0", " ").replace("&nbsp;", " ")
 
 
 class FindState:
@@ -231,7 +242,7 @@ class FindState:
         return self.found_value is not None
 
     def get_int_or_raise_and_try_dumping_page_error(
-            self, base_error_message, dump_suffix, page, regex=None):
+            self, base_error_message: str, dump_suffix: str, page: PageType, regex: str = None):
         """As its name suggests: it tries to return the `found_value` as `int`, or
         if it wasn't found, call _raise_and_try_dumping_page_error()
         If converting the found value to `int` fails, some kind of exception
@@ -245,7 +256,7 @@ class FindState:
             )
         return int_value
 
-    def find_in_a_block(self, block_pattern, value_pattern, text):
+    def find_in_a_block(self, block_pattern: str, value_pattern: str, text: str):
         """Find the `block_pattern` then look for the `value_pattern` and, once found,
         save it into this instance
         """
@@ -261,19 +272,19 @@ class FindState:
 class BlockValueFindState(FindState):
     """Preserve state for block-value pattern-finding algorithms with multi-phases"""
 
-    def __init__(self, block_pattern, value_pattern):
+    def __init__(self, block_pattern: str, value_pattern: str):
         super(BlockValueFindState, self).__init__()
         self.block_pattern = block_pattern
         self.value_pattern = value_pattern
 
-    def find_in(self, text):
+    def find_in(self, text: str):
         """Find the `block_pattern` then look for the `value_pattern` and, once found,
         save it into this instance
         """
         self.find_in_a_block(self.block_pattern, self.value_pattern, text)
 
 
-def _find_values_in_blocks(search, page):
+def _find_values_in_blocks(search: dict, page: PageType):
     """Find the things specified in the `search` dictionary on the `page`
     The expected search dictionary format is this:
     {
@@ -296,7 +307,7 @@ def _find_values_in_blocks(search, page):
     return found_all
 
 
-def _parse_int_values_from_blocks_into(container, search, page):
+def _parse_int_values_from_blocks_into(container, search: dict, page: PageType):
     """Find the things specified in the `search` dictionary on the `page`
     and convert them into int values to be stored in the `container`
     """
@@ -325,7 +336,7 @@ def _parse_player_tsi(player_page):
     )
 
 
-def _parse_team_id(page):
+def _parse_team_id(page: PageType) -> int:
     """Parse and return the team id or raise a RuntimeError"""
     team_id_pattern = r"currentTeamId=(?P<team_id>\d+)"
     cookie_text = page.request.headers["Cookie"]
@@ -338,11 +349,11 @@ def _parse_team_id(page):
     return team_id
 
 
-def _lookup_value_on_page_for_key(page, key):
+def _lookup_value_on_page_for_key(page: PageType, key):
     """Look up and return the current value of `key` on the page or
     raise a RuntimeError"""
     regex = r'{}.*value="(?P<value>[^"]+)"'.format(key)
-    if match := re.search(regex, page.text):
+    if match := re.search(regex, _page_text(page)):
         value = match.group("value")
     else:
         _raise_and_try_dumping_page_error(
@@ -352,7 +363,7 @@ def _lookup_value_on_page_for_key(page, key):
     return value
 
 
-def _update_form_with_dynamic_value(page, key, form):
+def _update_form_with_dynamic_value(page: PageType, key, form):
     """Look up the `value` for the `key` on the `page` and update the `form`
     with it at `key`"""
     value = _lookup_value_on_page_for_key(page, key)
@@ -374,7 +385,7 @@ def _get_user():
     return user
 
 
-def _get_from_user_if_none(maybe_none_value, get_from_user_function):
+def _get_from_user_if_none(maybe_none_value: OptionalString, get_from_user_function: Callable):
     """Get the value from the user if it was None originally"""
     if maybe_none_value is None:
         value = get_from_user_function()
@@ -490,7 +501,7 @@ class Hattrick:
         )
     }
 
-    def __init__(self, currency, user=None, password=None):
+    def __init__(self, currency: str, user: str = None, password: str = None):
         """Initialise a new session before login"""
         if currency is None:
             raise ValueError("The currency cannot be None")
@@ -503,24 +514,24 @@ class Hattrick:
         self.language = None
         self.logged_in = False
 
-    def _translate_to(self, key, language):
+    def _translate_to(self, key: str, language: str) -> str:
         """Translate the value for `key` from `self.DICTIONARY` to the specified
         language.
         """
         return self.DICTIONARY[key].translate_to(language)
 
-    def _translate_to_page_language(self, key):
+    def _translate_to_page_language(self, key: str) -> str:
         """Translate the value for `key` from `self.DICTIONARY` to the page's
         language.
         """
         return self._translate_to(key, self.language)
 
-    def _parse_team_name_by_id(self, page, team_id):
+    def _parse_team_name_by_id(self, page: PageType, team_id: int) -> str:
         """Parse and return the team's name or raise a RuntimeError"""
         regex = r'a href="/{}{}" title="(?P<name>[^"]+)"'.format(
             self.TEAM_LINK_PATTERN, team_id
         )
-        if match := re.search(regex, page.text):
+        if match := re.search(regex, _page_text(page)):
             name = match.group("name")
         else:
             _raise_and_try_dumping_page_error(
@@ -529,7 +540,7 @@ class Hattrick:
 
         return name
 
-    def _fill_in_form_with_lookup_values(self, page, form):
+    def _fill_in_form_with_lookup_values(self, page: PageType, form: dict):
         """Look up the values for `LOOKUP_FORM_FIELD_KEYS` on the `page` and
         fill in the `form`
         """
@@ -588,10 +599,10 @@ class Hattrick:
         players_url_suffix = "{}/?TeamID={}".format(self.PLAYERS_LINK, self.team.id)
         return HtLink.request(players_url_suffix)
 
-    def _parse_player_age(self, player_page):
+    def _parse_player_age(self, player_page: PageType):
         """Parse and return the player's age or raise a RuntimeError"""
         age_pattern = self._translate_to_page_language("age")
-        if match := re.search(age_pattern, player_page.text):
+        if match := re.search(age_pattern, _page_text(player_page)):
             age = Age(int(match.group("years")), int(match.group("days")))
         else:
             _raise_and_try_dumping_page_error(
@@ -599,14 +610,14 @@ class Hattrick:
             )
         return age
 
-    def _parse_national_team_player_status(self, player_page):
+    def _parse_national_team_player_status(self, player_page: PageType):
         """Parse and return the player's ::NationalPlayerStatus"""
         nt_pattern = self._translate_to_page_language("nt")
-        nt_player = bool(re.search(nt_pattern, player_page.text))
+        nt_player = bool(re.search(nt_pattern, _page_text(player_page)))
 
         nt_prospect_pattern = self._translate_to_page_language("nt_prospect")
         nt_player_prospect = bool(re.search(nt_prospect_pattern,
-                                            player_page.text))
+                                            _page_text(player_page)))
 
         return NationalPlayerStatus(
             is_national_team_player=nt_player,
@@ -620,15 +631,15 @@ class Hattrick:
         self._fill_in_form_with_lookup_values(page, self.LOAD_MORE_TRANSFERS_FORM)
         return HtLink.request(link, method="post", data=self.LOAD_MORE_TRANSFERS_FORM)
 
-    def _download_sell_price_etimation_page(self, player_page):
+    def _download_sell_price_etimation_page(self, player_page: PageType):
         """Return the requested page's html response object"""
         regex = r'a href="/(?P<link>{}[^"]+)"'.format(self.TRANSFER_COMPARE_LINK)
-        if match := re.search(regex, player_page.text):
+        if match := re.search(regex, _page_text(player_page)):
             link = match.group("link")
             price_estimation_page = HtLink.request(link)
 
             there_is_more_transfer_to_load = re.search(
-                self.FURTHER_TRANSFERS_LINK_ID, price_estimation_page.text
+                self.FURTHER_TRANSFERS_LINK_ID, _page_text(price_estimation_page)
             )
             if there_is_more_transfer_to_load:
                 price_estimation_page = self._load_more_transfers(
@@ -643,7 +654,7 @@ class Hattrick:
             )
         return price_estimation_page
 
-    def _parse_player_sell_base_price(self, player_page):
+    def _parse_player_sell_base_price(self, player_page: PageType):
         """Parse and return the player's base sell price
         To do that we need to navigate to the sell price estimation page first
         """
@@ -666,14 +677,14 @@ class Hattrick:
             price_estimation_page, sell_base_price.value_pattern,
         )
 
-    def _parse_speciality(self, player_page):
+    def _parse_speciality(self, player_page: PageType):
         """Parse the speciality of the player, if any"""
         spec_tags = {
             self._translate_to_page_language(tag): tag
             for tag in self.DICTIONARY if "spec:" in tag
         }
         spec_tags_pattern = r"(?P<spec>{})".format('|'.join(spec_tags.keys()))
-        if match := re.search(spec_tags_pattern, player_page.text):
+        if match := re.search(spec_tags_pattern, _page_text(player_page)):
             tag = spec_tags[match.group("spec")]
             english_name_of_spec = self._translate_to(tag, "english")
             speciality = Speciality.parse_from_string(english_name_of_spec)
@@ -681,7 +692,7 @@ class Hattrick:
             speciality = Speciality.Nothing
         return speciality
 
-    def _parse_player_skillz(self, player_page):
+    def _parse_player_skillz(self, player_page: PageType):
         """Parse the player's skillz"""
         skill_pattern = r"level='(?P<value>[0-9]+)'"
         search = {
@@ -701,12 +712,12 @@ class Hattrick:
 
         return skillz
 
-    def _parse_player_stars(self, player_page):
+    def _parse_player_stars(self, player_page: PageType):
         """If there were previous games for this players, we'll return his star-rating
         Otherwise, we'll return None.
         """
         star_pattern = self._translate_to_page_language("avg_star_value")
-        if match := re.search(star_pattern, player_page.text):
+        if match := re.search(star_pattern, _page_text(player_page)):
             stars = float(match.group("stars"))
         else:
             stars = None
@@ -729,7 +740,7 @@ class Hattrick:
         player_regex = ((r'\<a href="(?P<player_link>/{}/Player[^ ]+'
                          r'playerId=(?P<player_id>\d+)&[^ ]+)" title="[^"]+">{}')
                         .format(self.PLAYERS_LINK, name))
-        if match := re.search(player_regex, players_list_page.text):
+        if match := re.search(player_regex, _page_text(players_list_page)):
             player = Player(
                 name,
                 link=match.group("player_link"),
