@@ -118,6 +118,22 @@ class NtpValueAndFormat(ValueAndFormat):  # pylint: disable=too-few-public-metho
         cell.api.Font.Color = rgb_to_int(nice_green)
 
 
+class ValueWithNormalFormat(ValueAndFormat):  # pylint: disable=too-few-public-methods
+    """Normal format with no special colour or font or anything"""
+
+    def __init__(self, value):
+        super(ValueWithNormalFormat, self).__init__(value)
+
+    @overrides
+    def format_cell_win32(self, cell: CellType):
+        """(Re-)set the format to the normal
+        WARNING: this makes the script Windows dependent!
+        """
+        cell.api.Font.Bold = False
+        black = (0, 0, 0)
+        cell.api.Font.Color = rgb_to_int(black)
+
+
 def _set_and_maybe_format_cell(cell: CellType, generic_value):
     """Set the `cell`'s value and also format it if `generic_value` is of type ValueAndFormat"""
     if isinstance(generic_value, ValueAndFormat):
@@ -148,7 +164,7 @@ def _update_player(player: Player, sheet: SheetType, row_number: int) -> None:
         "Kor (év)": player.age.years,
         "Kor (nap)": player.age.days,
         "TSI": player.tsi,
-        "Válogatott?": NtpValueAndFormat() if is_ntp else "Nem",
+        "Válogatott?": NtpValueAndFormat() if is_ntp else ValueWithNormalFormat("Nem"),
         "Forma": str(player.form),
         "Erőnlét": str(player.stamina),
         "Eladási alapár": player.sell_base_price,
