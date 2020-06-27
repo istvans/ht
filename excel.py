@@ -121,9 +121,6 @@ class NtpValueAndFormat(ValueAndFormat):  # pylint: disable=too-few-public-metho
 class ValueWithNormalFormat(ValueAndFormat):  # pylint: disable=too-few-public-methods
     """Normal format with no special colour or font or anything"""
 
-    def __init__(self, value):
-        super(ValueWithNormalFormat, self).__init__(value)
-
     @overrides
     def format_cell_win32(self, cell: CellType):
         """(Re-)set the format to the normal
