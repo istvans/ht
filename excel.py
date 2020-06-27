@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from collections import namedtuple
 import contextlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import os.path
 import re
 import sys
@@ -31,6 +31,8 @@ FIRST_COLUMN = "A:A"
 SOLD_PLAYER_MARKER = '$'
 NEW_PLAYER_MARKER = '@'
 NEXT_PLAYER_NAME_ATTRIBUTE = "next_player_name"
+
+NUM_AUCTION_DAYS = 3
 
 
 def _is_player_sheet(sheet: SheetType):
@@ -241,8 +243,9 @@ def _is_formula_cell(cell: CellType) -> bool:
     return bool(re.search("^=", cell.formula))
 
 
-def _add_player_to_central_player_sheet(
-        player: Player, sheet: SheetType, headers: RowType, reserve_price_header: str) -> None:
+def _add_player_to_central_player_sheet(  # pylint: disable=too-many-arguments
+        player: Player, sheet: SheetType, headers: RowType,
+        reserve_price_header: str, final_price_header: str, date_header: str) -> None:
     """Add player to the left of its next player sheet (or MAYDO just to the beginning
     if that's missing) and update its first column
     """
@@ -272,8 +275,8 @@ def _add_player_to_central_player_sheet(
         "Forrás": player.extra.source.value,
         "Spec": player.extra.skillz.speciality.value,
         reserve_price_header: player.extra.reserve_price,
-        "Végső ár": player.extra.buy_price,
-        "Érkezés -> Távozás": player.extra.arrival,
+        final_price_header: player.extra.buy_price,
+        date_header: player.extra.arrival,
     }
 
     return (update_column, header_value_map)
@@ -295,15 +298,19 @@ def _update_central_player_sheet(player: Player, sheet: SheetType) -> None:
 
     headers = sheet[FIRST_ROW]
     reserve_price_header = "Kikiáltási ár"
+    final_price_header = "Végső ár"
+    date_header = "Érkezés -> Távozás"
     cell = _find_cell_by_name(headers, player.name)
     if cell is None:
         (update_column, specific_header_value_map) = _add_player_to_central_player_sheet(
-            player, sheet, headers, reserve_price_header
+            player, sheet, headers, reserve_price_header, final_price_header, date_header
         )
     else:
         update_column = cell.column + 1
         specific_header_value_map = {
             reserve_price_header: player.sell_base_price,
+            final_price_header: player.sell_base_price,
+            date_header: (date.today() + timedelta(days=NUM_AUCTION_DAYS)),
         }
 
     header_value_map = {**base_header_value_map, **specific_header_value_map}
