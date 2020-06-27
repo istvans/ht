@@ -313,6 +313,8 @@ def _update_central_player_sheet(player: Player, sheet: SheetType) -> None:
     _update_column_based_on_map(sheet, update_column, header_value_map)
 
 
+# MAYDO encapsulate all these basic, sheet-specific operations in our own Sheet class
+
 def _sheets_of_sheet(sheet: SheetType) -> SheetsType:
     """Return the sheets that this sheet is part of"""
     return sheet.book.sheets
@@ -321,7 +323,7 @@ def _sheets_of_sheet(sheet: SheetType) -> SheetsType:
 def _ensure_valid_index(index: int):
     """Raise IndexError if the index is smaller than zero"""
     if index < 0:
-        raise IndexError("'{}' supposed to be 1-based...")
+        raise IndexError("'{}' supposed to be a non-negative integer")
 
 
 def _sheet_index(sheet: SheetType) -> int:
