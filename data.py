@@ -10,6 +10,7 @@ import re
 import common
 
 
+NUM_AUCTION_DAYS = 3
 UNKNOWN_STR = "Ismeretlen"
 
 

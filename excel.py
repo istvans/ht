@@ -13,7 +13,7 @@ from xlwings.utils import rgb_to_int
 
 from overrides import overrides
 
-from data import Player, Team
+from data import Player, Team, NUM_AUCTION_DAYS
 
 
 CellType = xl.Range
@@ -32,7 +32,6 @@ SOLD_PLAYER_MARKER = '$'
 NEW_PLAYER_MARKER = '@'
 NEXT_PLAYER_NAME_ATTRIBUTE = "next_player_name"
 
-NUM_AUCTION_DAYS = 3
 DATE_COLUMN = "Dátum"
 BUY_PRICE_COLUMN = "Vételi ár"
 
