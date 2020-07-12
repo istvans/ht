@@ -493,11 +493,18 @@ class Excel:
     def update_player(self, player: Player) -> None:
         """Store the `player`'s updated info on his tab in the spreadsheet
         (unless we're in read-only mode)
+
+        WARNING call monitored_players_names() before this function to build the list
+        of sheets once
         """
+        # MAYDO clean-up the dependency on monitored_players_names
         print("### Update '{}' -> excel... ".format(player.name), end="")
 
         with _run_if_not_read_only(self._read_only):
-            sheet = self._player_sheets[player.name]
+            try:
+                sheet = self._player_sheets[player.name]
+            except KeyError:
+                raise RuntimeError("Have you called monitored_players_names before this function?")
 
             last_cell_with_value = sheet["A:A"].end("down")
 
