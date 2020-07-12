@@ -33,11 +33,13 @@ NEW_PLAYER_MARKER = '@'
 NEXT_PLAYER_NAME_ATTRIBUTE = "next_player_name"
 
 NUM_AUCTION_DAYS = 3
+DATE_COLUMN = "Dátum"
+BUY_PRICE_COLUMN = "Vételi ár"
 
 
 def _is_player_sheet(sheet: SheetType):
     """Return whether the specified sheet is a player sheet"""
-    return sheet[FIRST_CELL].value == "Dátum"
+    return sheet[FIRST_CELL].value == DATE_COLUMN
 
 
 def _update_value_next_to_named_cell(cell: CellType, name: str, value: Any):
@@ -224,7 +226,12 @@ def _get_todays_row(sheet: SheetType, last_cell_with_value: CellType, today: dat
         this_row = previous_row.row + 1
         todays_row = _get_row_by_number(sheet, this_row)
         previous_row.copy(destination=todays_row)
-        todays_row[0].value = today
+
+        header_value_map = {
+            DATE_COLUMN: today,
+            BUY_PRICE_COLUMN: None,  # we only store it on the first row, but this is a copy
+        }
+        _update_row_based_on_map(sheet, this_row, header_value_map)
     return todays_row
 
 
@@ -522,8 +529,8 @@ class Excel:
                 arrival_row = player_sheet[FIRST_DATA_ROW]
                 row_number = arrival_row.row
                 header_value_map = {
-                    "Dátum": player.extra.arrival,
-                    "Vételi ár": player.extra.buy_price,
+                    DATE_COLUMN: player.extra.arrival,
+                    BUY_PRICE_COLUMN: player.extra.buy_price,
                 }
                 _update_row_based_on_map(player_sheet, row_number, header_value_map)
                 _update_player(player, player_sheet, row_number)  # to fill in the common columns
