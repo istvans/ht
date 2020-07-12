@@ -19,6 +19,7 @@ from data import Player, Age, NationalPlayerStatus, Team, Skillz, Speciality, Ab
 
 PageType = requests.models.Response
 OptionalString = Optional[str]
+OptionalInt = Optional[int]
 
 LEVEL_PATTERN = r"level='(?P<value>[0-9]+)'"
 
@@ -236,8 +237,9 @@ class FindState:
     """Preserve state for a find algorithm with multiple phases"""
 
     def __init__(self):
-        self.in_block = False
         self.found_value = None
+        self._was_in_block = False
+        self._lines_parsed_in_block = 0
 
     def found(self):
         """Return if the searched value was found"""
@@ -258,32 +260,40 @@ class FindState:
             )
         return int_value
 
-    def find_in_a_block(self, block_pattern: str, value_pattern: str, text: str):
+    def find_in_a_block(self, block_pattern: str, value_pattern: str, text: str,
+                        num_lines_of_block: OptionalInt = None):
         """Find the `block_pattern` then look for the `value_pattern` and, once found,
         save it into this instance
+
+        `num_lines_of_block` can be used to end the block before the end of `text`
         """
-        if self.in_block and self.found_value is None:
+        block_ends_at_text_end = num_lines_of_block is None
+        still_in_block = (block_ends_at_text_end
+                          or (self._lines_parsed_in_block < num_lines_of_block))
+        if self._was_in_block and still_in_block and not self.found():
             if match := re.search(value_pattern, text):
                 self.found_value = match.group("value")
-                self.in_block = False
+            self._lines_parsed_in_block += 1
 
-        if self.found_value is None and re.search(block_pattern, text):
-            self.in_block = True
+        if not self.found() and re.search(block_pattern, text):
+            self._was_in_block = True
 
 
 class BlockValueFindState(FindState):
     """Preserve state for block-value pattern-finding algorithms with multi-phases"""
 
-    def __init__(self, block_pattern: str, value_pattern: str):
+    def __init__(self, block_pattern: str, value_pattern: str,
+                 num_lines_of_block: OptionalInt = None):
         super(BlockValueFindState, self).__init__()
         self.block_pattern = block_pattern
         self.value_pattern = value_pattern
+        self.num_lines_of_block = num_lines_of_block
 
     def find_in(self, text: str):
         """Find the `block_pattern` then look for the `value_pattern` and, once found,
         save it into this instance
         """
-        self.find_in_a_block(self.block_pattern, self.value_pattern, text)
+        self.find_in_a_block(self.block_pattern, self.value_pattern, text, self.num_lines_of_block)
 
 
 def _find_values_in_blocks(search: dict, page: PageType):
@@ -638,14 +648,34 @@ class Hattrick:
             )
         return age
 
-    def _parse_national_team_player_status(self, player_page: PageType):
+    def _player_regex(
+            self, name: str, player_link_group="player_link", player_id_group="player_id"):
+        """Return the regular expression to find the named player on the player list page."""
+        return ((r'\<a href="(?P<{}>/{}/Player[^ ]+'
+                 r'playerId=(?P<{}>\d+)&[^ ]+)" title="[^"]+">{}')
+                .format(player_link_group, self.PLAYERS_LINK, player_id_group, name))
+
+    def _parse_national_team_player_status(
+            self, player_page: PageType, player_name: str, players_list_page: PageType):
         """Parse and return the player's ::NationalPlayerStatus"""
+        nt_player_prospect = False
         nt_pattern = self._translate_to_page_language("nt")
         nt_player = bool(re.search(nt_pattern, _page_text(player_page)))
+        if not nt_player:
+            # If a NT player is on sale his status is only visible on the players
+            # list page for some reason
+            player_on_sale_regex = "{}.*transferlisted".format(self._player_regex(player_name))
+            patterns = BlockValueFindState(block_pattern=player_on_sale_regex,
+                                           value_pattern=r'(?P<value>{})'.format(nt_pattern),
+                                           num_lines_of_block=10)
+            _find_values_in_blocks({"nt": patterns}, players_list_page)
 
-        nt_prospect_pattern = self._translate_to_page_language("nt_prospect")
-        nt_player_prospect = bool(re.search(nt_prospect_pattern,
-                                            _page_text(player_page)))
+            if patterns.found():
+                nt_player = True
+            else:
+                nt_prospect_pattern = self._translate_to_page_language("nt_prospect")
+                nt_player_prospect = bool(re.search(nt_prospect_pattern,
+                                                    _page_text(player_page)))
 
         return NationalPlayerStatus(
             is_national_team_player=nt_player,
@@ -750,32 +780,35 @@ class Hattrick:
             stars = None
         return stars
 
-    def _download_player_info_into(self, player):
-        """Download all the info we need into the specified `player`"""
-        response = HtLink.request(player.link)
-        player.age = self._parse_player_age(response)
-        player.tsi = _parse_player_tsi(response)
-        player.form = _parse_player_form(response)
-        player.stamina = _parse_player_stamina(response)
-        player.ntp_status = self._parse_national_team_player_status(response)
-        player.sell_base_price = self._parse_player_sell_base_price(response)
-        player.extra.skillz = self._parse_player_skillz(response)
-        player.extra.stars = self._parse_player_stars(response)
+    def _update_player(self, player: Player, page: PageType):
+        """Parse all the info we need from `page` into the specified `player`
+        """
+        player.age = self._parse_player_age(page)
+        player.tsi = _parse_player_tsi(page)
+        player.form = _parse_player_form(page)
+        player.stamina = _parse_player_stamina(page)
+        player.sell_base_price = self._parse_player_sell_base_price(page)
+        player.extra.skillz = self._parse_player_skillz(page)
+        player.extra.stars = self._parse_player_stars(page)
 
     def download_player_by_name(self, name, players_list_page, raise_exception_if_not_found=True):
         """Return the Player object for the given `name`
         Raise an exception or just return `None` depending on `raise_exception_if_not_found`
         """
-        player_regex = ((r'\<a href="(?P<player_link>/{}/Player[^ ]+'
-                         r'playerId=(?P<player_id>\d+)&[^ ]+)" title="[^"]+">{}')
-                        .format(self.PLAYERS_LINK, name))
+        player_regex = self._player_regex(
+            name, player_link_group="player_link", player_id_group="player_id")
         if match := re.search(player_regex, _page_text(players_list_page)):
             player = Player(
                 name,
                 link=match.group("player_link"),
                 player_id=match.group("player_id"),
             )
-            self._download_player_info_into(player)
+            player_page = HtLink.request(player.link)
+
+            self._update_player(player, player_page)
+
+            player.ntp_status = self._parse_national_team_player_status(
+                player_page, player.name, players_list_page)
         elif raise_exception_if_not_found:
             raise RuntimeError(
                 "could not find any player based on '{}'!".format(player_regex)
