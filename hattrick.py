@@ -38,8 +38,9 @@ def _dump_a_page_to_file(page: PageType, file_name: str):
 
 
 def _raise_and_try_dumping_page_error(
-        base_error_message: str, dump_suffix: str, page: PageType, regex: str = None):
-    """Raise a runtime error and try to dump the `page` to
+        base_error_message: str, dump_suffix: str, page: PageType, regex: str = None,
+        exception_type: Exception = RuntimeError):
+    """Raise an `exception_type` error and try to dump the `page` to
     crashdump.`dump_suffix`.html
     `base_error_message` will be extended with (the optional) `regex` and the
     dump file name if dumping succeeded
@@ -60,7 +61,7 @@ def _raise_and_try_dumping_page_error(
             error_message, saved_page_file
         )
 
-    raise RuntimeError(error_message)
+    raise exception_type(error_message)
 
 
 class HtLink:
@@ -224,13 +225,8 @@ def _string_to_int(raw_string: str) -> int:
     return int(_remove_witespace(raw_string))
 
 
-def _bytes_to_string(value: bytes) -> str:
-    r"""Convert `value` to string by also replacing the following HTML
-    characters:
-    \xa0 -> " "
-    &nbsp; -> " "
-    """
-    return value.decode("utf-8").replace("\xa0", " ").replace("&nbsp;", " ")
+class NoPatternMatchError(Exception):
+    """Raise when a pattern matching failed"""
 
 
 class FindState:
@@ -256,7 +252,7 @@ class FindState:
             int_value = _string_to_int(self.found_value)
         else:
             _raise_and_try_dumping_page_error(
-                base_error_message, dump_suffix, page, regex
+                base_error_message, dump_suffix, page, regex, NoPatternMatchError
             )
         return int_value
 
@@ -294,6 +290,15 @@ class BlockValueFindState(FindState):
         save it into this instance
         """
         self.find_in_a_block(self.block_pattern, self.value_pattern, text, self.num_lines_of_block)
+
+
+def _bytes_to_string(value: bytes) -> str:
+    r"""Convert `value` to string by also replacing the following HTML
+    characters:
+    \xa0 -> " "
+    &nbsp; -> " "
+    """
+    return value.decode("utf-8").replace("\xa0", " ").replace("&nbsp;", " ")
 
 
 def _find_values_in_blocks(search: dict, page: PageType):
@@ -495,6 +500,10 @@ class Hattrick:
         ),
         "avg_price_block": LanguageDependentText(
             hungarian=">Átlagérték<",
+            english=None,
+        ),
+        "cash": LanguageDependentText(
+            hungarian="Készpénz:",
             english=None,
         ),
         "total": LanguageDependentText(
@@ -828,14 +837,23 @@ class Hattrick:
         finance_page = self._download_team_finance_page()
 
         money_pattern = r"(?P<value>[0-9][0-9 ]+) {}".format(self.currency)
-        total_pattern = self._translate_to_page_language("total")
-        reserves_pattern = self._translate_to_page_language("board_reserves")
-        search = {
-            "total": BlockValueFindState(block_pattern=total_pattern,
-                                         value_pattern=money_pattern),
-            "board_reserves": BlockValueFindState(block_pattern=reserves_pattern,
-                                                  value_pattern=money_pattern),
-        }
-        _parse_int_values_from_blocks_into(self.team.finance, search, finance_page)
+        try:
+            total_pattern = self._translate_to_page_language("total")
+            reserves_pattern = self._translate_to_page_language("board_reserves")
+            search = {
+                "total": BlockValueFindState(block_pattern=total_pattern,
+                                             value_pattern=money_pattern),
+                "board_reserves": BlockValueFindState(block_pattern=reserves_pattern,
+                                                      value_pattern=money_pattern),
+            }
+            _parse_int_values_from_blocks_into(self.team.finance, search, finance_page)
+        except NoPatternMatchError:
+            cash_pattern = self._translate_to_page_language("cash")
+            search = {
+                "total": BlockValueFindState(block_pattern=cash_pattern,
+                                             value_pattern=money_pattern),
+            }
+            _parse_int_values_from_blocks_into(self.team.finance, search, finance_page)
+            self.team.finance.board_reserves = 0
 
         return self.team
