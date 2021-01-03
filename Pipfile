@@ -10,6 +10,7 @@ xlwings = "*"
 overrides = "*"
 mypy = "*"
 requests = "*"
+click = "*"
 
 [requires]
 python_version = "3.9"
