@@ -7,7 +7,7 @@ def level_coeff(level):
     if level < 9:
         return 16.289 * math.exp(-0.1396 * level)
     else:
-        return 54.676 / level - 1.438
+        return (54.676 / level) - 1.438
 
 
 def coach_coeff(level):
@@ -122,12 +122,23 @@ def train(ctx, level, coach, assist, intensity, stamina, train_type, full, age):
 
     ctx.ensure_object(dict)
     ctx.obj["level"] = level
+    ctx.obj["coach"] = coach
+    ctx.obj["assist"] = assist
+    ctx.obj["intensity"] = intensity
+    ctx.obj["stamina"] = stamina
+    ctx.obj["train_type"] = train_type
+    ctx.obj["full"] = full
+    ctx.obj["age"] = age
     ctx.obj["progress"] = progress
 
 
-def next_level_after_a_season(level, weekly_progress):
+def next_level_after_a_season(level, coach, assist, intensity, stamina, train_type, full, age):
     season_weeks = 16
-    return math.floor(level + (season_weeks * weekly_progress))
+    for season in range(season_weeks):
+        progress = training_progress(level, coach, assist, intensity, stamina, train_type, full, age)
+        level += progress
+        age += 1
+    return math.floor(level)
 
 
 @train.command()
@@ -143,8 +154,14 @@ def weekly(ctx):
 def season(ctx):
     """Print the reached level after a season of training"""
     level = ctx.obj["level"]
-    progress = ctx.obj["progress"]
-    next_level = next_level_after_a_season(level, progress)
+    coach = ctx.obj["coach"]
+    assist = ctx.obj["assist"]
+    intensity = ctx.obj["intensity"]
+    stamina = ctx.obj["stamina"]
+    train_type = ctx.obj["train_type"]
+    full = ctx.obj["full"]
+    age = ctx.obj["age"]
+    next_level = next_level_after_a_season(level, coach, assist, intensity, stamina, train_type, full, age)
     print(next_level)
 
 
