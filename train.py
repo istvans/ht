@@ -55,8 +55,8 @@ COEFF_OF_TRAIN_TYPE = {
     "SC": 0.0324,
     "SP": 0.01470,
     "SC_and_PS": 0.0150,
-    "FirstPS": 3.15,
-    "ZoneDF": 1.38,
+    "FirstPS": 0.0315,
+    "ZoneDF": 0.0138,
     "WingAttack": 0.0312,
 }
 
