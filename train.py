@@ -1,3 +1,4 @@
+from collections import namedtuple
 import math
 
 import click
@@ -132,13 +133,22 @@ def train(ctx, level, coach, assist, intensity, stamina, train_type, full, age):
     ctx.obj["progress"] = progress
 
 
-def next_level_after_a_season(level, coach, assist, intensity, stamina, train_type, full, age):
+Season = namedtuple("Season", "age in_level progress out_level")
+
+
+def simulate_seasons(number_of_seasons, level, coach, assist, intensity, stamina, train_type, full, age):
     season_weeks = 16
-    for season in range(season_weeks):
-        progress = training_progress(level, coach, assist, intensity, stamina, train_type, full, age)
-        level += progress
+    seasons = []
+    for season in range(number_of_seasons):
+        season_progress = 0
+        init_level = level
+        for _ in range(season_weeks):
+            progress = training_progress(level, coach, assist, intensity, stamina, train_type, full, age)
+            level += progress
+            season_progress += progress
+        seasons.append(Season(age=age, in_level=init_level, progress=season_progress, out_level=level))
         age += 1
-    return math.floor(level)
+    return (math.floor(level), seasons)
 
 
 @train.command()
@@ -150,8 +160,10 @@ def weekly(ctx):
 
 
 @train.command()
+@click.option("-n", "--number-of-seasons", default=1, type=int,
+              help="The number of consecutive seasons to simulate the training for.")
 @click.pass_context
-def season(ctx):
+def season(ctx, number_of_seasons):
     """Print the reached level after a season of training"""
     level = ctx.obj["level"]
     coach = ctx.obj["coach"]
@@ -161,8 +173,11 @@ def season(ctx):
     train_type = ctx.obj["train_type"]
     full = ctx.obj["full"]
     age = ctx.obj["age"]
-    next_level = next_level_after_a_season(level, coach, assist, intensity, stamina, train_type, full, age)
-    print(next_level)
+    simulation = simulate_seasons(number_of_seasons, level, coach, assist, intensity, stamina,
+                                  train_type, full, age)
+    print(simulation[0])
+    for season in simulation[1]:
+        print("{}: {:.2f} --[{:.2f}]--> {:.2f}".format(season.age, season.in_level, season.progress, season.out_level))
 
 
 if __name__ == '__main__':
