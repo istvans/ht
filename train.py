@@ -133,7 +133,7 @@ def train(ctx, level, coach, assist, intensity, stamina, train_type, full, age):
     ctx.obj["progress"] = progress
 
 
-Season = namedtuple("Season", "age in_level progress out_level")
+Season = namedtuple("Season", "in_age in_level progress out_level out_age")
 
 
 def simulate_seasons(number_of_seasons, level, coach, assist, intensity, stamina, train_type, full, age):
@@ -146,7 +146,8 @@ def simulate_seasons(number_of_seasons, level, coach, assist, intensity, stamina
             progress = training_progress(level, coach, assist, intensity, stamina, train_type, full, age)
             level += progress
             season_progress += progress
-        seasons.append(Season(age=age, in_level=init_level, progress=season_progress, out_level=level))
+        seasons.append(Season(in_age=age, in_level=init_level, progress=season_progress,
+                              out_level=level, out_age=age + 1))
         age += 1
     return (math.floor(level), seasons)
 
@@ -177,7 +178,8 @@ def season(ctx, number_of_seasons):
                                   train_type, full, age)
     print(simulation[0])
     for season in simulation[1]:
-        print("{}: {:.2f} --[{:.2f}]--> {:.2f}".format(season.age, season.in_level, season.progress, season.out_level))
+        print("{}: {:.2f} --[{:.2f}]--> {:.2f} ({})"
+              .format(season.in_age, season.in_level, season.progress, season.out_level, season.out_age))
 
 
 if __name__ == '__main__':
